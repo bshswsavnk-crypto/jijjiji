@@ -1,4 +1,3 @@
-
 import ast
 import io
 import logging
@@ -19,6 +18,12 @@ from telegram.ext import (
     filters,
 )
 
+# =========================
+# CONFIGURATION
+# =========================
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -26,51 +31,48 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-
-# ==============================
+# =========================
 # MAIN MENU
-# ==============================
+# =========================
 
-MENU = InlineKeyboardMarkup([
+MAIN_MENU = InlineKeyboardMarkup([
     [
-        InlineKeyboardButton("📝 Text Formatter", callback_data="tool:formatter"),
-        InlineKeyboardButton("🔢 Word Counter", callback_data="tool:counter"),
+        InlineKeyboardButton("📝 Text Formatter", callback_data="formatter"),
+        InlineKeyboardButton("🔢 Word Counter", callback_data="counter"),
     ],
     [
-        InlineKeyboardButton("🌐 Text Translator", callback_data="tool:translator"),
-        InlineKeyboardButton("🔳 QR Code Generator", callback_data="tool:qr"),
+        InlineKeyboardButton("🌐 Text Translator", callback_data="translator"),
+        InlineKeyboardButton("🔳 QR Generator", callback_data="qr"),
     ],
     [
-        InlineKeyboardButton("🧮 Calculator", callback_data="tool:calculator"),
+        InlineKeyboardButton("🧮 Calculator", callback_data="calculator"),
     ],
     [
-        InlineKeyboardButton("ℹ️ Help", callback_data="tool:help"),
+        InlineKeyboardButton("ℹ️ Help", callback_data="help"),
     ],
 ])
-
 
 FORMAT_MENU = InlineKeyboardMarkup([
     [
-        InlineKeyboardButton("UPPERCASE", callback_data="format:upper"),
-        InlineKeyboardButton("lowercase", callback_data="format:lower"),
+        InlineKeyboardButton("UPPERCASE", callback_data="fmt_upper"),
+        InlineKeyboardButton("lowercase", callback_data="fmt_lower"),
     ],
     [
-        InlineKeyboardButton("Title Case", callback_data="format:title"),
-        InlineKeyboardButton("Clean Text", callback_data="format:clean"),
+        InlineKeyboardButton("Title Case", callback_data="fmt_title"),
+        InlineKeyboardButton("Clean Text", callback_data="fmt_clean"),
     ],
     [
-        InlineKeyboardButton("↩️ Main Menu", callback_data="tool:home"),
+        InlineKeyboardButton("↩️ Main Menu", callback_data="home"),
     ],
 ])
 
 
-# ==============================
+# =========================
 # SAFE CALCULATOR
-# ==============================
+# =========================
 
-ALLOWED_OPERATORS = {
+OPERATORS = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
     ast.Mult: operator.mul,
@@ -83,49 +85,57 @@ ALLOWED_OPERATORS = {
 }
 
 
-def calculate_safely(expression):
+def safe_calculate(expression):
 
     if len(expression) > 100:
-        raise ValueError("Please keep calculations under 100 characters.")
+        raise ValueError("Calculation is too long.")
 
     tree = ast.parse(expression, mode="eval")
 
-    def visit(node):
+    def calculate(node):
 
         if isinstance(node, ast.Expression):
-            return visit(node.body)
+            return calculate(node.body)
 
-        if isinstance(node, ast.Constant) and type(node.value) in (int, float):
-            return node.value
+        if isinstance(node, ast.Constant):
+            if type(node.value) in (int, float):
+                return node.value
 
-        if isinstance(node, ast.BinOp) and type(node.op) in ALLOWED_OPERATORS:
+        if isinstance(node, ast.BinOp):
+            if type(node.op) not in OPERATORS:
+                raise ValueError("Unsupported mathematical operator.")
 
-            left = visit(node.left)
-            right = visit(node.right)
+            left = calculate(node.left)
+            right = calculate(node.right)
 
             if isinstance(node.op, ast.Pow) and abs(right) > 10:
-                raise ValueError("That power is too large.")
+                raise ValueError("Power is too large.")
 
-            result = ALLOWED_OPERATORS[type(node.op)](left, right)
+            result = OPERATORS[type(node.op)](left, right)
 
             if not math.isfinite(float(result)) or abs(result) > 10**100:
-                raise ValueError("The result is too large.")
+                raise ValueError("Result is too large.")
 
             return result
 
-        if isinstance(node, ast.UnaryOp) and type(node.op) in ALLOWED_OPERATORS:
-            return ALLOWED_OPERATORS[type(node.op)](visit(node.operand))
+        if isinstance(node, ast.UnaryOp):
+            if type(node.op) not in OPERATORS:
+                raise ValueError("Unsupported operator.")
+
+            return OPERATORS[type(node.op)](
+                calculate(node.operand)
+            )
 
         raise ValueError(
-            "Use numbers and basic operators only: + - * / // % **"
+            "Use numbers and basic operators: + - * / // % **"
         )
 
-    return visit(tree)
+    return calculate(tree)
 
 
-# ==============================
+# =========================
 # START COMMAND
-# ==============================
+# =========================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -133,86 +143,96 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "Welcome to Smart Tools Bot! 👋\n\n"
-        "Choose a tool from the menu:\n\n"
-        "📝 Format text\n"
+        "Your simple collection of everyday digital tools.\n\n"
+        "Choose what you want to do:\n\n"
+        "📝 Format your text\n"
         "🔢 Count words and characters\n"
         "🌐 Translate text\n"
         "🔳 Generate QR codes\n"
-        "🧮 Calculate expressions\n\n"
-        "Select a button to get started.",
-        reply_markup=MENU,
+        "🧮 Calculate numbers\n\n"
+        "Select a tool below to begin.",
+        reply_markup=MAIN_MENU,
     )
 
 
-# ==============================
+# =========================
 # HELP COMMAND
-# ==============================
+# =========================
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
-        "HOW TO USE SMART TOOLS BOT\n\n"
-        "1. Select a tool from the menu.\n"
-        "2. Follow the instruction and send your text.\n"
-        "3. Use /start to return to the main menu.\n"
-        "4. Use /cancel to cancel the current task.\n\n"
-        "Translator example:\n"
-        "Spanish | Good morning\n\n"
-        "Calculator example:\n"
-        "(12 + 8) * 3",
-        reply_markup=MENU,
+        "SMART TOOLS BOT - HELP\n\n"
+        "📝 Text Formatter: Change text case and clean spaces.\n\n"
+        "🔢 Word Counter: Count words, characters and lines.\n\n"
+        "🌐 Translator: Translate text into another language.\n\n"
+        "🔳 QR Generator: Create QR codes from text or links.\n\n"
+        "🧮 Calculator: Solve basic mathematical calculations.\n\n"
+        "Use /start to open the main menu.\n"
+        "Use /cancel to cancel your current task.",
+        reply_markup=MAIN_MENU,
     )
 
 
-# ==============================
+# =========================
 # CANCEL COMMAND
-# ==============================
+# =========================
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data.clear()
 
     await update.message.reply_text(
-        "Your current task has been cancelled.",
-        reply_markup=MENU,
+        "Your current task has been cancelled.\n\n"
+        "Choose another tool below.",
+        reply_markup=MAIN_MENU,
     )
 
 
-# ==============================
+# =========================
 # BUTTON HANDLER
-# ==============================
+# =========================
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
     await query.answer()
 
-    data = query.data
+    choice = query.data
 
-    # Return to main menu
-    if data == "tool:home":
+    # Return to home
+    if choice == "home":
 
         context.user_data.clear()
 
         await query.message.reply_text(
-            "Choose a tool:",
-            reply_markup=MENU,
+            "Welcome back! Choose a tool:",
+            reply_markup=MAIN_MENU,
         )
         return
 
-    # Text formatting buttons
-    if data.startswith("format:"):
+    # Help
+    if choice == "help":
+
+        await query.message.reply_text(
+            "Choose a tool from the menu and follow the instructions.",
+            reply_markup=MAIN_MENU,
+        )
+        return
+
+    # Text formatting
+    if choice.startswith("fmt_"):
 
         original = context.user_data.get("formatter_text")
 
         if not original:
             await query.message.reply_text(
                 "Please select Text Formatter and send your text first.",
-                reply_markup=MENU,
+                reply_markup=MAIN_MENU,
             )
             return
 
-        action = data.split(":", 1)[1]
+        action = choice.replace("fmt_", "", 1)
 
         if action == "upper":
             result = original.upper()
@@ -224,7 +244,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result = original.title()
 
         elif action == "clean":
-
             result = "\n".join(
                 re.sub(r"[ \t]+", " ", line.strip())
                 for line in original.splitlines()
@@ -237,70 +256,59 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("formatter_text", None)
 
         await query.message.reply_text(
-            f"Formatted text:\n\n{result}",
-            reply_markup=MENU,
+            "Formatted text:\n\n" + result,
+            reply_markup=MAIN_MENU,
         )
         return
 
-    # Help button
-    if data == "tool:help":
-
-        await query.message.reply_text(
-            "Choose a tool, follow its instruction, and send your input.\n"
-            "Use /start to return to the main menu.",
-            reply_markup=MENU,
-        )
-        return
-
-    # Tool instructions
+    # Tool selection
     prompts = {
 
-        "tool:formatter": (
+        "formatter": (
             "formatter",
             "Send the text you want to format."
         ),
 
-        "tool:counter": (
+        "counter": (
             "counter",
-            "Send the text you want counted."
+            "Send the text you want to count."
         ),
 
-        "tool:translator": (
+        "translator": (
             "translator",
-            "Send the target language, then a vertical bar |, "
-            "then your text.\n\n"
-            "Example: French | Hello, how are you?"
+            "Enter the target language, followed by | and your text.\n\n"
+            "Example:\nSpanish | Good morning"
         ),
 
-        "tool:qr": (
+        "qr": (
             "qr",
-            "Send the text or website address you want to turn into a QR code."
+            "Send the text or website link for your QR code."
         ),
 
-        "tool:calculator": (
+        "calculator": (
             "calculator",
-            "Send a calculation.\n\nExample: (25 + 5) * 2"
+            "Enter your calculation.\n\n"
+            "Example: (25 + 5) * 2"
         ),
-
     }
 
-    if data not in prompts:
+    if choice not in prompts:
         return
 
-    mode, prompt = prompts[data]
+    mode, message = prompts[choice]
 
     context.user_data.clear()
     context.user_data["mode"] = mode
 
     await query.message.reply_text(
-        prompt,
-        reply_markup=MENU,
+        message,
+        reply_markup=MAIN_MENU,
     )
 
 
-# ==============================
+# =========================
 # TEXT HANDLER
-# ==============================
+# =========================
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -311,108 +319,107 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not mode:
 
         await update.message.reply_text(
-            "Please choose a tool from the menu or send /start.",
-            reply_markup=MENU,
+            "Please choose a tool from the menu or type /start.",
+            reply_markup=MAIN_MENU,
         )
         return
 
-    # ==========================
+    # -------------------------
     # TEXT FORMATTER
-    # ==========================
+    # -------------------------
 
     if mode == "formatter":
+
+        if not user_text:
+            await update.message.reply_text("Please send some text.")
+            return
 
         context.user_data["formatter_text"] = user_text
 
         await update.message.reply_text(
-            "Choose how you want to format your text:",
+            "Choose your preferred text format:",
             reply_markup=FORMAT_MENU,
         )
         return
 
+    # Other tools process one input at a time.
     context.user_data.pop("mode", None)
 
     try:
 
-        # ======================
+        # -------------------------
         # WORD COUNTER
-        # ======================
+        # -------------------------
 
         if mode == "counter":
 
             words = re.findall(
                 r"\b[\w'-]+\b",
                 user_text,
-                flags=re.UNICODE
+                flags=re.UNICODE,
             )
 
-            char_count = len(user_text)
+            characters = len(user_text)
 
-            no_spaces = len(
+            characters_without_spaces = len(
                 re.sub(r"\s", "", user_text)
             )
 
-            line_count = len(user_text.splitlines())
+            lines = len(user_text.splitlines())
 
             await update.message.reply_text(
                 "📊 TEXT STATISTICS\n\n"
                 f"Words: {len(words)}\n"
-                f"Characters (with spaces): {char_count}\n"
-                f"Characters (without spaces): {no_spaces}\n"
-                f"Lines: {line_count}",
-                reply_markup=MENU,
+                f"Characters: {characters}\n"
+                f"Characters without spaces: {characters_without_spaces}\n"
+                f"Lines: {lines}",
+                reply_markup=MAIN_MENU,
             )
 
-
-        # ======================
-        # TEXT TRANSLATOR
-        # ======================
+        # -------------------------
+        # TRANSLATOR
+        # -------------------------
 
         elif mode == "translator":
 
             if "|" not in user_text:
-
                 raise ValueError(
-                    "Use this format:\n"
+                    "Use this format:\n\n"
                     "Target language | Your text\n\n"
-                    "Example: German | Good morning"
+                    "Example:\nFrench | How are you?"
                 )
 
-            language, source_text = user_text.split("|", 1)
+            language, text_to_translate = user_text.split("|", 1)
 
             language = language.strip()
-            source_text = source_text.strip()
+            text_to_translate = text_to_translate.strip()
 
-            if not language or not source_text:
-
+            if not language or not text_to_translate:
                 raise ValueError(
-                    "Please enter both a language and text."
+                    "Please provide both a language and text."
                 )
 
             translated = GoogleTranslator(
                 source="auto",
                 target=language,
-            ).translate(source_text)
+            ).translate(text_to_translate)
 
             await update.message.reply_text(
-                f"🌐 Translation ({language}):\n\n{translated}",
-                reply_markup=MENU,
+                f"🌐 TRANSLATION ({language})\n\n{translated}",
+                reply_markup=MAIN_MENU,
             )
 
-
-        # ======================
+        # -------------------------
         # QR CODE GENERATOR
-        # ======================
+        # -------------------------
 
         elif mode == "qr":
 
             if not user_text:
-                raise ValueError("Please send text or a website address.")
+                raise ValueError("Please enter text or a website link.")
 
             if len(user_text) > 1500:
-                raise ValueError(
-                    "Please keep the QR content under 1,500 characters."
-                )
+                raise ValueError("Please keep the content below 1,500 characters.")
 
             qr = qrcode.QRCode(
                 box_size=8,
@@ -427,87 +434,67 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 back_color="white",
             )
 
-            image_file = io.BytesIO()
-            image_file.name = "qr-code.png"
+            output = io.BytesIO()
+            output.name = "smart-tools-qr.png"
 
-            image.save(
-                image_file,
-                format="PNG",
-            )
-
-            image_file.seek(0)
+            image.save(output, format="PNG")
+            output.seek(0)
 
             await update.message.reply_photo(
-                photo=image_file,
-                caption="Your QR code is ready. ✅",
-                reply_markup=MENU,
+                photo=output,
+                caption="Your QR code is ready! ✅",
+                reply_markup=MAIN_MENU,
             )
 
-
-        # ======================
+        # -------------------------
         # CALCULATOR
-        # ======================
+        # -------------------------
 
         elif mode == "calculator":
 
-            result = calculate_safely(user_text)
+            result = safe_calculate(user_text)
 
             await update.message.reply_text(
-                f"🧮 Result: {result}",
-                reply_markup=MENU,
+                f"🧮 CALCULATOR RESULT\n\n{result}",
+                reply_markup=MAIN_MENU,
             )
-
 
     except ZeroDivisionError:
 
         await update.message.reply_text(
             "You cannot divide by zero.",
-            reply_markup=MENU,
+            reply_markup=MAIN_MENU,
         )
 
     except Exception as error:
 
-        logger.warning(
-            "Could not process user input: %s",
-            error,
-        )
+        logger.warning("Tool processing error: %s", error)
 
         await update.message.reply_text(
-            f"Sorry, I couldn't process that.\n\n{error}",
-            reply_markup=MENU,
+            "Sorry, I couldn't process that request.\n\n"
+            f"Details: {error}",
+            reply_markup=MAIN_MENU,
         )
 
 
-# ==============================
-# MAIN APPLICATION
-# ==============================
+# =========================
+# APPLICATION STARTUP
+# =========================
 
 def main():
 
     if not BOT_TOKEN:
-
         raise RuntimeError(
-            "BOT_TOKEN is missing. Add your Telegram bot token "
-            "in Railway > Variables."
+            "BOT_TOKEN is missing. Add your new token in Railway Variables."
         )
 
     app = Application.builder().token(BOT_TOKEN).build()
 
-    app.add_handler(
-        CommandHandler("start", start)
-    )
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("cancel", cancel))
 
-    app.add_handler(
-        CommandHandler("help", help_command)
-    )
-
-    app.add_handler(
-        CommandHandler("cancel", cancel)
-    )
-
-    app.add_handler(
-        CallbackQueryHandler(button_handler)
-    )
+    app.add_handler(CallbackQueryHandler(button_handler))
 
     app.add_handler(
         MessageHandler(
